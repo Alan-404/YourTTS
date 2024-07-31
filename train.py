@@ -55,6 +55,10 @@ def clip_grad_value_(parameters: torch.Tensor, clip_value: Optional[float] = Non
     total_norm = total_norm ** (1. / norm_type)
     return total_norm
 
+def step(rank: int, world_size: int, dataloader: DataLoader):
+    pass
+
+
 def train(rank: int,
           world_size: int,
           # dataset config
@@ -79,8 +83,8 @@ def train(rank: int,
           fmax: float = 8000.0,
           # model config
           n_blocks: int = 6,
-          d_model: int = 192,
-          n_heads: int = 2,
+          d_model: int = 512,
+          n_heads: int = 8,
           kernel_size: int = 3,
           hidden_channels: int = 192,
           upsample_initial_channel: int = 512,
@@ -88,6 +92,7 @@ def train(rank: int,
           upsample_kernel_sizes: List[int] = [16, 16, 4, 4],
           resblock_kernel_sizes: List[int] = [3, 7, 11],
           resblock_dilation_sizes: List[List[int]] = [[1, 3, 5], [1, 3, 5], [1, 3, 5]],
+          gin_channels: int = 512,
           dropout_p: float = 0.1,
           segment_size: int = 8192,
           # train config
@@ -150,6 +155,7 @@ def train(rank: int,
         upsample_kernel_sizes=upsample_kernel_sizes,
         resblock_dilation_sizes=resblock_dilation_sizes,
         resblock_kernel_sizes=resblock_kernel_sizes,
+        gin_channels=gin_channels,
         dropout_p=dropout_p
     ).to(rank)
     discriminator = MultiPeriodDiscriminator().to(rank)
@@ -165,7 +171,7 @@ def train(rank: int,
     disc_scheduler = lr_scheduler.ExponentialLR(optimizer=disc_optim, gamma=0.999875)
 
     if checkpoint is not None and os.path.exists(checkpoint):
-        loaded_steps, loaded_epoch = checkpoint_manager.load_checkpoint(f"{checkpoint}/vits.pt", generator, gen_optim, gen_scheduler)
+        loaded_steps, loaded_epoch = checkpoint_manager.load_checkpoint(f"{checkpoint}/your_tts.pt", generator, gen_optim, gen_scheduler)
         checkpoint_manager.load_checkpoint(f"{checkpoint}/disc.pt", discriminator, disc_optim, disc_scheduler)
         if rank == 0:
             current_epoch = loaded_epoch

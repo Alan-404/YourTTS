@@ -9,7 +9,6 @@ import wandb
 import matplotlib.pyplot as plt
 from typing import Dict, Optional
 
-
 class CheckpointManager:
     def __init__(self, saved_folder: Optional[str] = None, n_saved: int = 3) -> None:
         self.saved_folder = saved_folder
