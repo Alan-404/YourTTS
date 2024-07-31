@@ -8,9 +8,8 @@ from torch.utils.data import DistributedSampler, RandomSampler
 from torch.nn.parallel import DistributedDataParallel as DDP
 import torch.distributed as dist
 import torch.multiprocessing as mp
-import wandb.plot
 
-from manager import CheckpointManager
+from manager import CheckpointManager, LoggerManager
 from dataset import YourTTSDataset, YourTTSCollate
 from processing.processor import YourTTSProcessor
 from processing.target import YourTTSTargetProcessor
@@ -20,14 +19,10 @@ from evaluation import YourTTSCriterion
 from model.utils.common import slice_segments
 
 from tqdm import tqdm
-import statistics
 from typing import Optional, List
-import shutil
 import wandb
 
 import fire
-
-# manual_seed = 1234
 
 def setup(rank: int, world_size: int):
     os.environ['MASTER_ADDR'] = 'localhost'
@@ -53,6 +48,7 @@ def clip_grad_value_(parameters: torch.Tensor, clip_value: Optional[float] = Non
         if clip_value is not None:
             p.grad.data.clamp_(min=-clip_value, max=clip_value)
     total_norm = total_norm ** (1. / norm_type)
+
     return total_norm
 
 def train(rank: int,
@@ -99,7 +95,7 @@ def train(rank: int,
           fp16: bool = False,
           # Logger Config
           logging: bool = True,
-          project_name: str = 'VITS',
+          project_name: str = 'YourTTS',
           username: Optional[str] = None
     ):
     if world_size > 1:
@@ -107,6 +103,7 @@ def train(rank: int,
     # torch.manual_seed(manual_seed)
 
     checkpoint_manager = CheckpointManager(saved_checkpoints, n_saved_checkpoints)
+    logger = LoggerManager(project=project_name, name=username)
 
     processor = YourTTSProcessor(
         path=tokenizer_path,
@@ -128,8 +125,6 @@ def train(rank: int,
     )
 
     if rank == 0:
-        n_steps = 0
-        current_epoch = 0
         if logging:
             wandb.init(
                 project=project_name,
@@ -167,11 +162,10 @@ def train(rank: int,
     disc_scheduler = lr_scheduler.ExponentialLR(optimizer=disc_optim, gamma=0.999875)
 
     if checkpoint is not None and os.path.exists(checkpoint):
-        loaded_steps, loaded_epoch = checkpoint_manager.load_checkpoint(f"{checkpoint}/your_tts.pt", generator, gen_optim, gen_scheduler)
+        n_steps, n_epochs = checkpoint_manager.load_checkpoint(f"{checkpoint}/your_tts.pt", generator, gen_optim, gen_scheduler)
         checkpoint_manager.load_checkpoint(f"{checkpoint}/disc.pt", discriminator, disc_optim, disc_scheduler)
-        if rank == 0:
-            current_epoch = loaded_epoch
-            n_steps = loaded_steps
+    else:
+        n_steps, n_epochs = 0, 0
     
     if set_lr:
         gen_optim.param_groups[0]['lr'] = lr
@@ -197,6 +191,8 @@ def train(rank: int,
             dataloader.sampler.set_epoch(epoch)
         if rank == 0:
             print(f"Epoch: {epoch}")
+        
+        # Setup Ploting Information
         train_recon_loss = 0.0
         train_kl_loss = 0.0
         train_gen_loss = 0.0
@@ -219,18 +215,21 @@ def train(rank: int,
             y_lengths = y_lengths.to(rank)
             
             with autocast(enabled=fp16):
+                # Forward Generator
                 y_hat, mels, l_length, sliced_indexes, _, mel_mask, _, z_p, m_p, logs_p, _, logs_q, g_out = generator(x, cond, y, x_lengths, y_lengths)
                 
                 mel_hat = handler.mel_spectrogram(y_hat.squeeze(1))
                 mel_truth = slice_segments(mels, sliced_indexes, mel_frame)
                 y = slice_segments(y.unsqueeze(1), sliced_indexes * processor.hop_length, segment_size)
 
+                # Forward Discriminator
                 y_dp_hat_r, y_dp_hat_g, _, _ = discriminator(y, y_hat.detach())
                 
                 with autocast(enabled=False):
                     disc_loss = criterion.discriminator_loss(y_dp_hat_r, y_dp_hat_g)
                     assert torch.isnan(disc_loss) == False
-                
+            
+            # Backward Discriminator
             disc_optim.zero_grad()
             scaler.scale(disc_loss).backward()
             scaler.unscale_(disc_optim)
@@ -245,20 +244,22 @@ def train(rank: int,
                     dur_loss = criterion.duration_loss(l_length)
                     gen_loss = criterion.generator_loss(y_dp_hat_g)
                     fm_loss = criterion.feature_loss(fmap_dp_r, fmap_dp_g)
-
-                    speaker_consistency_loss = criterion.speaker_consistency_loss(g_out, generator.speaker_encoder(y_hat))
+                    speaker_consistency_loss = criterion.speaker_consistency_loss(g_out, generator.speaker_encoder(handler.resample_audio(y_hat)))
 
                     vae_loss = recon_loss + kl_loss + dur_loss + gen_loss + fm_loss + speaker_consistency_loss
                     assert torch.isnan(vae_loss) == False
             
+            # Backward Generator
             gen_optim.zero_grad()
             scaler.scale(vae_loss).backward()
             scaler.unscale_(gen_optim)
             generator_grad_norm = clip_grad_value_(generator.parameters(), None)
             scaler.step(gen_optim)
 
+            # Update Scaler
             scaler.update()
 
+            # Cumulate Losses
             train_recon_loss += recon_loss
             train_kl_loss += kl_loss
             train_gen_loss += gen_loss
@@ -278,6 +279,7 @@ def train(rank: int,
         gen_scheduler.step()
         disc_scheduler.step()
 
+        # Compute the avg of information
         num_batches = len(dataloader)
 
         train_recon_loss = train_recon_loss / num_batches
@@ -293,9 +295,24 @@ def train(rank: int,
         d_grad_norm = d_grad_norm / num_batches
         
         if rank == 0:
+            # Mean of all threads
+            if world_size > 1:
+                dist.all_reduce(train_recon_loss, dist.ReduceOp.AVG)
+                dist.all_reduce(train_kl_loss, dist.ReduceOp.AVG)
+                dist.all_reduce(train_duration_loss, dist.ReduceOp.AVG)
+                dist.all_reduce(train_gen_loss, dist.ReduceOp.AVG)
+                dist.all_reduce(train_fm_loss, dist.ReduceOp.AVG)
+                dist.all_reduce(train_consistency_loss, dist.ReduceOp.AVG)
+
+                dist.all_reduce(train_disc_loss, dist.ReduceOp.AVG)
+
+                dist.all_reduce(g_grad_norm, dist.ReduceOp.AVG)
+                dist.all_reduce(d_grad_norm, dist.ReduceOp.AVG)
+            
             elbo_loss = train_recon_loss + train_kl_loss
             vae_loss = elbo_loss + train_duration_loss + train_gen_loss + train_fm_loss + train_consistency_loss
             current_lr = gen_optim.param_groups[0]['lr']
+            
             print(f'Reconstruction Loss: {(train_recon_loss):.4f}')
             print(f"KL Loss: {(train_kl_loss):.4f}")
             print(f"Duration Loss: {(train_duration_loss):.4f}")
@@ -314,7 +331,7 @@ def train(rank: int,
             print(f"Discriminator Gradient Norm: {(d_grad_norm):.4f}")
             print("\n")
 
-            wandb.log({
+            logger.log_data({
                 'recon_loss': train_recon_loss,
                 'kl_loss': train_kl_loss,
                 'duration_loss': train_duration_loss,
@@ -328,11 +345,11 @@ def train(rank: int,
                 'discriminator_gradient_norm': d_grad_norm
             }, n_steps)
 
-            current_epoch += 1
+            n_epochs += 1
 
             if epoch % save_checkpoint_after_epochs == saved_index or epoch == num_epochs - 1:
-                checkpoint_manager.save_checkpoint(generator, gen_optim, gen_scheduler, n_steps, current_epoch, 'vits')
-                checkpoint_manager.save_checkpoint(discriminator, disc_optim, disc_scheduler, n_steps, current_epoch, 'disc')
+                checkpoint_manager.save_checkpoint(generator, gen_optim, gen_scheduler, n_steps, n_epochs, 'your_tts')
+                checkpoint_manager.save_checkpoint(discriminator, disc_optim, disc_scheduler, n_steps, n_epochs, 'disc')
                 print(f"Checkpoint is saved at {saved_checkpoints}/{n_steps}\n")
     
     if world_size > 1:

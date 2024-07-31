@@ -1,5 +1,6 @@
 import torch
 import torch.nn.functional as F
+from torchaudio.transforms import Resample
 from scipy.io import wavfile
 import librosa
 
@@ -25,9 +26,11 @@ class YourTTSTargetProcessor:
             )
         )
 
+        self.resampler = Resample(orig_freq=sampling_rate, new_freq=16000)
+
         self.hann_window = torch.hann_window(window_length=win_length).to(device)
 
-        self.num_pad = (self.n_fft-self.hop_length) // 2
+        self.num_pad = (self.n_fft - self.hop_length) // 2
 
         self.device = device
 
@@ -53,6 +56,9 @@ class YourTTSTargetProcessor:
         spec = torch.log(torch.clamp_min(spec, min=1e-6))
 
         return spec
+    
+    def resample_audio(self, signal: torch.Tensor) -> torch.Tensor:
+        return self.resampler(signal)
     
     def __call__(self, signals: List[torch.Tensor]):
         lengths = []
