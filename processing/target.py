@@ -27,6 +27,8 @@ class YourTTSTargetProcessor:
 
         self.hann_window = torch.hann_window(window_length=win_length).to(device)
 
+        self.num_pad = (self.n_fft-self.hop_length) // 2
+
         self.device = device
 
     def load_audio(self, path: str) -> torch.Tensor:
@@ -34,13 +36,12 @@ class YourTTSTargetProcessor:
         signal = signal / MAX_AUDIO_VALUE
         if sr != self.sampling_rate:
             signal = librosa.resample(signal, orig_sr=sr, target_sr=self.sampling_rate)
-
-        return torch.tensor(signal, dtype=torch.float)
+        return torch.tensor(signal, dtype=torch.float, device=self.device)
     
     def mel_spectrogram(self, signal: torch.Tensor) -> torch.Tensor:
         if signal.device != self.device:
             signal = signal.to(self.device)
-        signal = F.pad(signal.unsqueeze(1), (int((self.n_fft-self.hop_length)/2), int((self.n_fft-self.hop_length)/2)), mode='reflect')
+        signal = F.pad(signal.unsqueeze(1), (self.num_pad, self.num_pad), mode='reflect')
         signal = signal.squeeze(1)
 
         spec = torch.view_as_real(torch.stft(signal, n_fft=self.n_fft, hop_length=self.hop_length, win_length=self.win_length, window=self.hann_window,
@@ -49,7 +50,7 @@ class YourTTSTargetProcessor:
         spec = torch.sqrt(spec.pow(2).sum(-1) + 1e-6)
 
         spec = torch.matmul(self.mel_basis, spec)
-        spec = torch.log(torch.clamp_min(spec, min=1e-5))
+        spec = torch.log(torch.clamp_min(spec, min=1e-6))
 
         return spec
     
@@ -73,6 +74,6 @@ class YourTTSTargetProcessor:
         lengths = torch.tensor(lengths)
 
         mels = self.mel_spectrogram(padded_signals)
-        lengths = (length // self.hop_length) + 1
+        lengths = (lengths // self.hop_length) + 1
 
         return padded_signals, mels, lengths

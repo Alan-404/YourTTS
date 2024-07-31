@@ -6,7 +6,6 @@ from torch.nn import Module
 from torch.optim import Optimizer
 from torch.optim.lr_scheduler import LRScheduler
 import wandb
-import matplotlib.pyplot as plt
 from typing import Dict, Optional
 
 class CheckpointManager:
@@ -51,7 +50,7 @@ class CheckpointManager:
         self.saved_checkpoints.append(n_steps)
 
 class LoggerManager:
-    def __init__(self, project: str = "VITS", name: str = "TTS") -> None:
+    def __init__(self, project: str = "YourTTS", name: Optional[str] = None) -> None:
         self.project = project
         self.name = name
 

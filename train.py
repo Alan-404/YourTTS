@@ -55,10 +55,6 @@ def clip_grad_value_(parameters: torch.Tensor, clip_value: Optional[float] = Non
     total_norm = total_norm ** (1. / norm_type)
     return total_norm
 
-def step(rank: int, world_size: int, dataloader: DataLoader):
-    pass
-
-
 def train(rank: int,
           world_size: int,
           # dataset config
