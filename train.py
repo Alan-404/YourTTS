@@ -11,11 +11,12 @@ import torch.multiprocessing as mp
 import wandb.plot
 
 from manager import CheckpointManager
-from dataset import VITSDataset, VITSCollate
-from processing.processor import VITSProcessor
-from model.your_tts import VITS
+from dataset import YourTTSDataset, YourTTSCollate
+from processing.processor import YourTTSProcessor
+from processing.target import YourTTSTargetProcessor
+from model.your_tts import YourTTS
 from model.modules.vocoder import MultiPeriodDiscriminator
-from evaluation import VITSCriterion
+from evaluation import YourTTSCriterion
 from model.utils.common import slice_segments
 
 from tqdm import tqdm
@@ -106,16 +107,20 @@ def train(rank: int,
 
     checkpoint_manager = CheckpointManager(saved_checkpoints, n_saved_checkpoints)
 
-    processor = VITSProcessor(
+    processor = YourTTSProcessor(
         path=tokenizer_path,
         pad_token=pad_token,
         delim_token=delim_token,
         unk_token=unk_token,
+        sampling_rate=16000
+    )
+
+    handler = YourTTSTargetProcessor(
         sampling_rate=sampling_rate,
-        num_mels=num_mels,
+        n_mels=num_mels,
         n_fft=n_fft,
-        hop_length=hop_length,
         win_length=win_length,
+        hop_length=hop_length,
         fmin=fmin,
         fmax=fmax,
         device=rank
@@ -130,11 +135,11 @@ def train(rank: int,
                 name=username
             )
 
-    mel_frame = segment_size // processor.hop_length
+    mel_frame = segment_size // hop_length
 
-    generator = VITS(
+    generator = YourTTS(
         token_size=len(processor.dictionary),
-        n_mel_channels=processor.num_mels,
+        n_mel_channels=num_mels,
         d_model=d_model,
         n_blocks=n_blocks,
         n_heads=n_heads,
@@ -170,13 +175,13 @@ def train(rank: int,
         gen_optim.param_groups[0]['lr'] = lr
         disc_optim.param_groups[0]['lr'] = lr
 
-    collate_fn = VITSCollate(processor=processor, training=True)
+    collate_fn = YourTTSCollate(processor=processor, handler=handler, training=True)
 
-    dataset = VITSDataset(train_path, processor=processor, training=True, num_examples=num_train_samples)
+    dataset = YourTTSDataset(train_path, processor=processor, handler=handler, training=True, num_examples=num_train_samples)
     sampler = DistributedSampler(dataset, num_replicas=world_size, rank=rank) if world_size > 1 else RandomSampler(dataset)
     dataloader = DataLoader(dataset, batch_size=batch_size, sampler=sampler, collate_fn=collate_fn)
 
-    criterion = VITSCriterion()
+    criterion = YourTTSCriterion()
 
     scaler = GradScaler(enabled=fp16)
     saved_index = save_checkpoint_after_epochs - 1
@@ -195,6 +200,7 @@ def train(rank: int,
         train_gen_loss = 0.0
         train_duration_loss = 0.0
         train_fm_loss = 0.0
+        train_consistency_loss = 0.0
         
         train_disc_loss = 0.0
 
@@ -203,16 +209,17 @@ def train(rank: int,
 
         generator.train()
         discriminator.train()
-        for _, (x, y, x_lengths, y_lengths) in enumerate(tqdm(dataloader, leave=False)):
+        for _, (x, cond, y, x_lengths, y_lengths) in enumerate(tqdm(dataloader, leave=False)):
             x = x.to(rank)
+            cond = cond.to(rank)
             y = y.to(rank)
             x_lengths = x_lengths.to(rank)
             y_lengths = y_lengths.to(rank)
             
             with autocast(enabled=fp16):
-                y_hat, mels, l_length, sliced_indexes, _, mel_mask, _, z_p, m_p, logs_p, _, logs_q = generator(x, y, x_lengths, y_lengths)
+                y_hat, mels, l_length, sliced_indexes, _, mel_mask, _, z_p, m_p, logs_p, _, logs_q, g_out = generator(x, cond, y, x_lengths, y_lengths)
                 
-                mel_hat = processor.mel_spectrogram(y_hat.squeeze(1))
+                mel_hat = handler.mel_spectrogram(y_hat.squeeze(1))
                 mel_truth = slice_segments(mels, sliced_indexes, mel_frame)
                 y = slice_segments(y.unsqueeze(1), sliced_indexes * processor.hop_length, segment_size)
 
@@ -237,7 +244,9 @@ def train(rank: int,
                     gen_loss = criterion.generator_loss(y_dp_hat_g)
                     fm_loss = criterion.feature_loss(fmap_dp_r, fmap_dp_g)
 
-                    vae_loss = recon_loss + kl_loss + dur_loss + gen_loss + fm_loss
+                    speaker_consistency_loss = criterion.speaker_consistency_loss(g_out, generator.speaker_encoder(y_hat))
+
+                    vae_loss = recon_loss + kl_loss + dur_loss + gen_loss + fm_loss + speaker_consistency_loss
                     assert torch.isnan(vae_loss) == False
             
             gen_optim.zero_grad()
@@ -253,6 +262,7 @@ def train(rank: int,
             train_gen_loss += gen_loss
             train_duration_loss += dur_loss
             train_fm_loss += fm_loss
+            train_consistency_loss += speaker_consistency_loss
 
             train_disc_loss += disc_loss
 
@@ -273,6 +283,7 @@ def train(rank: int,
         train_duration_loss = train_duration_loss / num_batches
         train_gen_loss = train_gen_loss / num_batches
         train_fm_loss = train_fm_loss / num_batches
+        train_consistency_loss = train_consistency_loss / num_batches
 
         train_disc_loss = train_disc_loss / num_batches
 
@@ -281,13 +292,14 @@ def train(rank: int,
         
         if rank == 0:
             elbo_loss = train_recon_loss + train_kl_loss
-            vae_loss = elbo_loss + train_duration_loss + train_gen_loss + train_fm_loss
+            vae_loss = elbo_loss + train_duration_loss + train_gen_loss + train_fm_loss + train_consistency_loss
             current_lr = gen_optim.param_groups[0]['lr']
             print(f'Reconstruction Loss: {(train_recon_loss):.4f}')
             print(f"KL Loss: {(train_kl_loss):.4f}")
             print(f"Duration Loss: {(train_duration_loss):.4f}")
             print(f"Generation Loss: {(train_gen_loss):.4f}")
             print(f"Feature Map Loss: {(train_fm_loss):.4f}")
+            print(f"Speaker Consistency Loss: {(train_consistency_loss):.4f}")
             print("-----------------------------------------")
             print(f"ELBO Loss: {(elbo_loss):.4f}")
             print(f"VAE Loss: {(vae_loss):.4f}")

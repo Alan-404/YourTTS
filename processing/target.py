@@ -27,6 +27,8 @@ class YourTTSTargetProcessor:
 
         self.hann_window = torch.hann_window(window_length=win_length).to(device)
 
+        self.device = device
+
     def load_audio(self, path: str) -> torch.Tensor:
         sr, signal = wavfile.read(path)
         signal = signal / MAX_AUDIO_VALUE
@@ -43,6 +45,7 @@ class YourTTSTargetProcessor:
 
         spec = torch.view_as_real(torch.stft(signal, n_fft=self.n_fft, hop_length=self.hop_length, win_length=self.win_length, window=self.hann_window,
                       center=False, pad_mode='reflect', normalized=False, onesided=True, return_complex=True))
+
         spec = torch.sqrt(spec.pow(2).sum(-1) + 1e-6)
 
         spec = torch.matmul(self.mel_basis, spec)

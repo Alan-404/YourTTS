@@ -135,7 +135,7 @@ class YourTTS(nn.Module):
             o = self.decoder(z, g=g)
             sliced_indexes = None
 
-        return o, l_length, sliced_indexes, x_mask, y_mask, z, z_p, m_p, logs_p, m_q, logs_q
+        return o, l_length, sliced_indexes, x_mask, y_mask, z, z_p, m_p, logs_p, m_q, logs_q, g
     
     def infer(self, x: torch.Tensor, x_lengths: Optional[torch.Tensor] = None, sid: Optional[torch.Tensor] = None, length_scale: int = 1, noise_scale: float = 1.0, max_len: Optional[int] = None):
         batch_size = x.size(0)

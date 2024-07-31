@@ -4,7 +4,7 @@ import torch.nn.functional as F
 from typing import Optional, List
 import math
 
-class VITSCriterion:
+class YourTTSCriterion:
     def __init__(self) -> None:
         pass
     def reconstruction_loss(self, mel: torch.Tensor, mel_hat: torch.Tensor):
@@ -42,10 +42,10 @@ class VITSCriterion:
         if mask is not None:
             kl = kl * mask
         kl = torch.sum(kl)
+        
         if mask is not None:
             kl = kl / torch.sum(mask)
-        else:
-            kl = kl / (z_p.size(0) * z_p.size(-1))
+
         return kl
         
     def discriminator_loss(self, disc_real_output: List[torch.Tensor], disc_generated_output: List[torch.Tensor]):
@@ -60,6 +60,9 @@ class VITSCriterion:
             loss += (r_loss + g_loss)
         
         return loss
+    
+    def speaker_consistency_loss(self, x1: torch.Tensor, x2: torch.Tensor) -> torch.Tensor:
+        return F.cosine_embedding_loss(x1.float(), x2.float())
     
 class VITSMetric:
     def __init__(self) -> None:
