@@ -3,7 +3,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 from torch.cuda.amp import autocast
 
-from model.modules.audio import MelSpectrogram, PreEmphasis
+from model.utils.audio import PreEmphasis, MelSpectrogram
 from typing import Optional, List
 
 class SpeakerEncoder(nn.Module):

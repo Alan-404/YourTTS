@@ -1,12 +1,11 @@
 import torch
 import torch.nn as nn
-from torch.cuda.amp import autocast
 import torch.nn.functional as F
 from model.modules.encoder import TextEncoder, PosteriorEncoder
 from model.modules.duration import StochasticDurationPredictor
+from model.modules.speaker import SpeakerEncoder
 from model.modules.flow import Flow
 from model.modules.vocoder import Generator
-from model.modules.audio import LinearSpectrogram
 from model.utils.masking import generate_mask
 from model.utils.common import rand_slice_segments
 from model.modules.mas.search import find_path
@@ -19,14 +18,8 @@ class YourTTS(nn.Module):
     def __init__(self,
                  token_size: int,
                  n_mel_channels: int,
-                 sample_rate: int = 22050,
-                 n_fft: int = 1024,
-                 win_length: Optional[int] = 1024,
-                 hop_length: int = 256,
-                 fmin: float = 0.0,
-                 fmax: Optional[float] = 8000.0,
                  d_model: int = 192,
-                 n_blocks: int = 6,
+                 n_blocks: int = 10,
                  n_heads: int = 2,
                  kernel_size: int = 3,
                  hidden_channels: int = 192,
@@ -35,14 +28,12 @@ class YourTTS(nn.Module):
                  upsample_kernel_sizes: List[int] = [16,16,4,4],
                  resblock_kernel_sizes: List[int] = [3,7,11],
                  resblock_dilation_sizes: List[List[int]] = [[1,3,5], [1,3,5], [1,3,5]],
+                 gin_channels: Optional[int] = 256,
                  dropout_p: float = 0.0,
-                 segment_size: Optional[int] = 8192,
-                 n_speakers: Optional[int] = None,
-                 gin_channels: Optional[int] = None) -> None:
+                 segment_size: Optional[int] = 8192) -> None:
         super().__init__()
         self.d_model = d_model
         self.hidden_channels = hidden_channels
-        self.hop_length = hop_length
         if segment_size is not None:
             self.segment_size = segment_size // np.prod(upsample_rates)
         else:
@@ -58,16 +49,6 @@ class YourTTS(nn.Module):
         )
 
         self.projection = nn.Conv1d(in_channels=hidden_channels, out_channels=2*hidden_channels, kernel_size=1)
-
-        self.linear_spectrogram = LinearSpectrogram(
-            sample_rate=sample_rate,
-            n_fft=n_fft,
-            win_length=win_length,
-            hop_length=hop_length,
-            n_mel_channels=n_mel_channels,
-            fmin=fmin,
-            fmax=fmax
-        )
 
         self.posterior_encoder = PosteriorEncoder(
             n_mel_channels=n_mel_channels,
@@ -102,34 +83,25 @@ class YourTTS(nn.Module):
             gin_channels=gin_channels
         )
 
-        if gin_channels is not None:
-            self.gin_channels = gin_channels
-            if n_speakers is not None and n_speakers > 1:
-                self.speaker_encoder = nn.Embedding(num_embeddings=n_speakers, embedding_dim=gin_channels)
+        self.speaker_encoder = SpeakerEncoder(proj_dim=gin_channels)
 
-    def forward(self, x: torch.Tensor, y: torch.Tensor, x_lengths: Optional[torch.Tensor] = None, y_lengths: Optional[torch.Tensor] = None, sid: Optional[torch.Tensor] = None):        
-        if sid is not None:
-            g = self.speaker_encoder(sid).unsqueeze(-1)
-        else:
-            g = None
+    def forward(self, x: torch.Tensor, g: torch.Tensor, y: torch.Tensor, x_lengths: Optional[torch.Tensor] = None, y_lengths: Optional[torch.Tensor] = None):        
+        g = self.speaker_encoder(g)
 
         x_mask = None
         if x_lengths is not None:
             x_mask = generate_mask(x_lengths).unsqueeze(dim=1)
+        y_mask = None
+        if y_lengths is not None:
+            y_mask = generate_mask(y_lengths).unsqueeze(dim=1)
 
         h_text = self.text_encoder(x, x_mask if x_mask is not None else None)
         text_stats = self.projection(h_text)
         if x_mask is not None:
             text_stats = text_stats * x_mask
         m_p, logs_p = torch.split(text_stats, [self.hidden_channels]*2, dim=1)
-
-        with torch.no_grad():
-            with autocast(enabled=False):
-                linear_spec = self.linear_spectrogram(y.float())
-        y_mask = None
-        if y_lengths is not None:
-            y_mask = generate_mask(y_lengths // self.hop_length).unsqueeze(dim=1)
-        z, m_q, logs_q = self.posterior_encoder(linear_spec)
+ 
+        z, m_q, logs_q = self.posterior_encoder(y)
         if y_mask is not None:
             z = z * y_mask
         
@@ -163,7 +135,7 @@ class YourTTS(nn.Module):
             o = self.decoder(z, g=g)
             sliced_indexes = None
 
-        return o, linear_spec, l_length, sliced_indexes, x_mask, y_mask, z, z_p, m_p, logs_p, m_q, logs_q
+        return o, l_length, sliced_indexes, x_mask, y_mask, z, z_p, m_p, logs_p, m_q, logs_q
     
     def infer(self, x: torch.Tensor, x_lengths: Optional[torch.Tensor] = None, sid: Optional[torch.Tensor] = None, length_scale: int = 1, noise_scale: float = 1.0, max_len: Optional[int] = None):
         batch_size = x.size(0)
@@ -231,15 +203,3 @@ class YourTTS(nn.Module):
     def remove_weight_norm(self):
         self.flow.remove_weight_norm()
         self.decoder.remove_weight_norm()
-
-    def freeze_cloning(self):
-        for param in self.parameters():
-            param.requires_grad = False
-        
-        if hasattr('speaker_encoder'):
-            for param in self.speaker_encoder.parameters():
-                param.requires_grad = True
-
-    def remove_posterior(self):
-        del self.posterior_encoder
-        torch.cuda.empty_cache()

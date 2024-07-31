@@ -6,7 +6,7 @@ import torch.distributed as dist
 from torch.nn.parallel import DistributedDataParallel as DDP
 import torch.multiprocessing as mp
 from processing.processor import VITSProcessor
-from model.vits import VITS
+from model.your_tts import VITS
 from typing import List, Optional
 from scipy.io import wavfile
 import torchsummary

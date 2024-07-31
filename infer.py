@@ -8,7 +8,7 @@ from tqdm import tqdm
 from processing.processor import VITSProcessor
 
 from dataset import VITSDataset, VITSCollate
-from model.vits import VITS
+from model.your_tts import VITS
 
 from typing import Tuple, List, Optional
 from scipy.io import wavfile

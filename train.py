@@ -13,7 +13,7 @@ import wandb.plot
 from manager import CheckpointManager
 from dataset import VITSDataset, VITSCollate
 from processing.processor import VITSProcessor
-from model.vits import VITS
+from model.your_tts import VITS
 from model.modules.vocoder import MultiPeriodDiscriminator
 from evaluation import VITSCriterion
 from model.utils.common import slice_segments

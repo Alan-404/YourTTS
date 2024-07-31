@@ -5,6 +5,7 @@ from typing import Optional
 from model.utils.block import WN, EncoderBlock
 from model.utils.convolution import DDSConv
 import math
+
 class TextEncoder(nn.Module):
     def __init__(self, token_size: int, n_blocks: int, d_model: int, n_heads: int, kernel_size: int, dropout_p: float = 0.0) -> None:
         super().__init__()

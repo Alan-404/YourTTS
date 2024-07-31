@@ -3,7 +3,7 @@ import torch.nn as nn
 from torch.cuda.amp import autocast
 from typing import Optional, List
 
-from model.vits import VITS
+from model.your_tts import VITS
 from model.modules.encoder import PosteriorEncoder
 from model.modules.audio import LinearSpectrogram
 from model.utils.masking import generate_mask
