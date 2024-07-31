@@ -57,7 +57,7 @@ class MultiHeadAttention(nn.Module):
             scores = scores + score_local
         if mask is not None:
             if self.mask_value is None:
-                self.mask_value = torch.iinfo(q.dtype).min
+                self.mask_value = torch.finfo(q.dtype).min
             scores.masked_fill_(~mask, self.mask_value)
         attention_weights = F.softmax(scores, dim=-1)
         attention_weights = F.dropout(attention_weights, p=self.dropout_p, training=self.training)
