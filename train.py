@@ -122,6 +122,7 @@ def train(rank: int,
     )
 
     handler = YourTTSTargetProcessor(
+        speaker_path='./tokenizer/speaker.json',
         sampling_rate=sampling_rate,
         n_mels=num_mels,
         n_fft=n_fft,
