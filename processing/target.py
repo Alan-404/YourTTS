@@ -80,6 +80,6 @@ class YourTTSTargetProcessor:
         lengths = torch.tensor(lengths)
 
         mels = self.mel_spectrogram(padded_signals)
-        lengths = (lengths // self.hop_length) + 1
+        lengths = (lengths // self.hop_length)
 
         return padded_signals, mels, lengths
