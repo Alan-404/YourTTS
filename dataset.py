@@ -51,7 +51,7 @@ class YourTTSCollate:
 
         self.training = training
 
-    def __call__(self, batch: Tuple[torch.Tensor, torch.Tensor, torch.Tensor]) -> Any:
+    def __call__(self, batch: Tuple[torch.Tensor, torch.Tensor, torch.Tensor]) -> Union[Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor], Tuple[torch.Tensor, torch.Tensor, torch.Tensor]]:
         if self.training:
             tokens, ref_audios, signals = zip(*batch)
 
