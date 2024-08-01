@@ -100,4 +100,3 @@ class MultiHeadAttention(nn.Module):
 
         x_final = x_flat.reshape((batch_size, n_heads, length + 1, 2*length - 1))[:, :, :length, length-1:]
         return x_final
-    

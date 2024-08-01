@@ -64,7 +64,7 @@ class YourTTSCriterion:
     def speaker_consistency_loss(self, x1: torch.Tensor, x2: torch.Tensor) -> torch.Tensor:
         return F.cosine_embedding_loss(x1.float(), x2.float())
     
-class VITSMetric:
+class YourTTSMetric:
     def __init__(self) -> None:
         self.alpha = (10 * math.sqrt(2)) / (math.log(10))
     

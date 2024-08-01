@@ -51,6 +51,10 @@ def clip_grad_value_(parameters: torch.Tensor, clip_value: Optional[float] = Non
 
     return total_norm
 
+def step(rank: int,
+         world_size: int,):
+    pass
+
 def train(rank: int,
           world_size: int,
           # dataset config
@@ -93,6 +97,10 @@ def train(rank: int,
           lr: float = 2e-4,
           set_lr: bool = False,
           fp16: bool = False,
+          # Validation Config
+          val_path: Optional[str] = None,
+          val_batch_size: int = 1,
+          num_val_samples: Optional[int] = None,
           # Logger Config
           logging: bool = True,
           project_name: str = 'YourTTS',
@@ -177,6 +185,13 @@ def train(rank: int,
     sampler = DistributedSampler(dataset, num_replicas=world_size, rank=rank) if world_size > 1 else RandomSampler(dataset)
     dataloader = DataLoader(dataset, batch_size=batch_size, sampler=sampler, collate_fn=collate_fn)
 
+    run_validation = False
+    if val_path is not None and os.path.exists(val_path):
+        val_dataset = YourTTSDataset(val_path, processor=processor, handler=handler, training=True, num_examples=num_val_samples)
+        val_sampler = DistributedSampler(val_dataset, num_replicas=world_size, rank=rank) if world_size > 1 else RandomSampler(val_dataset)
+        val_dataloader = DataLoader(dataset, batch_size=val_batch_size, sampler=val_sampler, collate_fn=collate_fn)
+        run_validation = True
+
     criterion = YourTTSCriterion()
 
     scaler = GradScaler(enabled=fp16)
@@ -204,7 +219,8 @@ def train(rank: int,
 
         g_grad_norm = 0.0
         d_grad_norm = 0.0
-
+        
+        # Training Step
         generator.train()
         discriminator.train()
         for _, (x, cond, y, x_lengths, y_lengths) in enumerate(tqdm(dataloader, leave=False)):
@@ -220,7 +236,7 @@ def train(rank: int,
                 
                 mel_hat = handler.mel_spectrogram(y_hat.squeeze(1))
                 mel_truth = slice_segments(mels, sliced_indexes, mel_frame)
-                y = slice_segments(y.unsqueeze(1), sliced_indexes * processor.hop_length, segment_size)
+                y = slice_segments(y.unsqueeze(1), sliced_indexes * handler.hop_length, segment_size)
 
                 # Forward Discriminator
                 y_dp_hat_r, y_dp_hat_g, _, _ = discriminator(y, y_hat.detach())
@@ -274,7 +290,7 @@ def train(rank: int,
 
             if rank == 0:
                 n_steps += 1
-        
+
         # Schedulers step
         gen_scheduler.step()
         disc_scheduler.step()
@@ -394,6 +410,10 @@ def main(
         lr: float = 2e-4,
         set_lr: bool = False,
         fp16: bool = False,
+        # Validation Config
+        val_path: Optional[str] = None,
+        val_batch_size: int = 1,
+        num_val_samples: Optional[int] = None,
         # Logger Config
         logging: bool = True,
         project_name: str = 'VITS',
@@ -413,6 +433,7 @@ def main(
             n_blocks, d_model, n_heads, kernel_size, hidden_channels, upsample_initial_channel, upsample_rates, upsample_kernel_sizes,
             resblock_kernel_sizes, resblock_dilation_sizes, dropout_p, segment_size,
             batch_size, num_epochs, lr, set_lr, bool(fp16),
+            val_path, val_batch_size, num_val_samples,
             logging, project_name, username
         )
     else:
@@ -426,6 +447,7 @@ def main(
                 n_blocks, d_model, n_heads, kernel_size, hidden_channels, upsample_initial_channel, upsample_rates, upsample_kernel_sizes,
                 resblock_kernel_sizes, resblock_dilation_sizes, dropout_p, segment_size,
                 batch_size, num_epochs, lr, set_lr, bool(fp16),
+                val_path, val_batch_size, num_val_samples,
                 logging, project_name, username
             ),
             nprocs=n_gpus,
