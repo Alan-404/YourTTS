@@ -260,7 +260,7 @@ def train(rank: int,
                     dur_loss = criterion.duration_loss(l_length)
                     gen_loss = criterion.generator_loss(y_dp_hat_g)
                     fm_loss = criterion.feature_loss(fmap_dp_r, fmap_dp_g)
-                    speaker_consistency_loss = criterion.speaker_consistency_loss(g_out, generator.speaker_encoder(handler.resample_audio(y_hat)))
+                    speaker_consistency_loss = criterion.speaker_consistency_loss(g_out, generator.speaker_encoder(handler.resample_audio(y_hat.squeeze(1))))
 
                     vae_loss = recon_loss + kl_loss + dur_loss + gen_loss + fm_loss + speaker_consistency_loss
                     assert torch.isnan(vae_loss) == False

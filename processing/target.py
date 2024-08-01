@@ -26,7 +26,7 @@ class YourTTSTargetProcessor:
             )
         ).to(device)
 
-        self.resampler = Resample(orig_freq=sampling_rate, new_freq=16000)
+        self.resampler = Resample(orig_freq=sampling_rate, new_freq=16000).to(device)
 
         self.hann_window = torch.hann_window(window_length=win_length).to(device)
 

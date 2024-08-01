@@ -85,7 +85,7 @@ class YourTTS(nn.Module):
         self.speaker_encoder = SpeakerEncoder(proj_dim=gin_channels)
 
     def forward(self, x: torch.Tensor, g: torch.Tensor, y: torch.Tensor, x_lengths: Optional[torch.Tensor] = None, y_lengths: Optional[torch.Tensor] = None):        
-        g = self.speaker_encoder(g)
+        g = self.speaker_encoder(g).unsqueeze(-1)
 
         x_mask = None
         if x_lengths is not None:
