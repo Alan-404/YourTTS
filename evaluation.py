@@ -4,9 +4,11 @@ import torch.nn.functional as F
 from typing import Optional, List
 import math
 
+from pytorch_metric_learning.losses import ArcFaceLoss
+
 class YourTTSCriterion:
-    def __init__(self) -> None:
-        pass
+    def __init__(self, n_speakers: int, dim: int) -> None:
+        self.arc_face = ArcFaceLoss(n_speakers, dim)
     def reconstruction_loss(self, mel: torch.Tensor, mel_hat: torch.Tensor):
         loss = F.l1_loss(mel_hat, mel) * 45
         return loss
@@ -61,8 +63,11 @@ class YourTTSCriterion:
         
         return loss
     
-    def speaker_consistency_loss(self, x1: torch.Tensor, x2: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
-        return F.cosine_embedding_loss(x1.float(), x2.float(), target)
+    def speaker_consistency_loss(self, x1: torch.Tensor, x2: torch.Tensor) -> torch.Tensor:
+        return 1 - F.cosine_similarity(x1, x2)
+    
+    def softmax_margin_loss(self, outputs: torch.Tensor, labels: torch.Tensor):
+        return self.arc_face(outputs, labels)
     
 class YourTTSMetric:
     def __init__(self) -> None:

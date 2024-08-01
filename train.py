@@ -193,7 +193,7 @@ def train(rank: int,
         val_dataloader = DataLoader(dataset, batch_size=val_batch_size, sampler=val_sampler, collate_fn=collate_fn)
         run_validation = True
 
-    criterion = YourTTSCriterion()
+    criterion = YourTTSCriterion(len(handler.speaker_dict), gin_channels)
 
     scaler = GradScaler(enabled=fp16)
     saved_index = save_checkpoint_after_epochs - 1
@@ -215,6 +215,7 @@ def train(rank: int,
         train_duration_loss = 0.0
         train_fm_loss = 0.0
         train_consistency_loss = 0.0
+        train_margin_loss = 0.0
         
         train_disc_loss = 0.0
 
@@ -235,6 +236,7 @@ def train(rank: int,
             with autocast(enabled=fp16):
                 # Forward Generator
                 y_hat, l_length, sliced_indexes, _, mel_mask, _, z_p, m_p, logs_p, _, logs_q, g_out = generator(x, cond, mels, x_lengths, mel_lengths)
+                g_out = g_out.squeeze(-1)
                 
                 mel_hat = handler.mel_spectrogram(y_hat.squeeze(1))
                 mel_truth = slice_segments(mels, sliced_indexes, mel_frame)
@@ -262,9 +264,13 @@ def train(rank: int,
                     dur_loss = criterion.duration_loss(l_length)
                     gen_loss = criterion.generator_loss(y_dp_hat_g)
                     fm_loss = criterion.feature_loss(fmap_dp_r, fmap_dp_g)
-                    speaker_consistency_loss = criterion.speaker_consistency_loss(g_out.squeeze(-1), generator.speaker_encoder(handler.resample_audio(y_hat.squeeze(1))), speakers)
 
-                    vae_loss = recon_loss + kl_loss + dur_loss + gen_loss + fm_loss + speaker_consistency_loss
+                    # Speaker
+                    output_embedding = generator.speaker_encoder(handler.resample_audio(y_hat.squeeze(1)))
+                    speaker_consistency_loss = criterion.speaker_consistency_loss(g_out, output_embedding)
+                    speaker_margin_loss = criterion.softmax_margin_loss(g_out, speakers)
+
+                    vae_loss = recon_loss + kl_loss + dur_loss + gen_loss + fm_loss + speaker_consistency_loss + speaker_margin_loss
                     assert torch.isnan(vae_loss) == False
             
             # Backward Generator
@@ -284,6 +290,7 @@ def train(rank: int,
             train_duration_loss += dur_loss
             train_fm_loss += fm_loss
             train_consistency_loss += speaker_consistency_loss
+            train_margin_loss += speaker_margin_loss
 
             train_disc_loss += disc_loss
 
@@ -306,6 +313,7 @@ def train(rank: int,
         train_gen_loss = train_gen_loss / num_batches
         train_fm_loss = train_fm_loss / num_batches
         train_consistency_loss = train_consistency_loss / num_batches
+        train_margin_loss = train_margin_loss / num_batches
 
         train_disc_loss = train_disc_loss / num_batches
 
@@ -328,7 +336,8 @@ def train(rank: int,
                 dist.all_reduce(d_grad_norm, dist.ReduceOp.AVG)
             
             elbo_loss = train_recon_loss + train_kl_loss
-            vae_loss = elbo_loss + train_duration_loss + train_gen_loss + train_fm_loss + train_consistency_loss
+            vae_loss = elbo_loss + train_duration_loss + train_gen_loss + train_fm_loss
+            speaker_loss = train_consistency_loss + train_margin_loss
             current_lr = gen_optim.param_groups[0]['lr']
             
             print(f'Reconstruction Loss: {(train_recon_loss):.4f}')
@@ -337,9 +346,11 @@ def train(rank: int,
             print(f"Generation Loss: {(train_gen_loss):.4f}")
             print(f"Feature Map Loss: {(train_fm_loss):.4f}")
             print(f"Speaker Consistency Loss: {(train_consistency_loss):.4f}")
+            print(f"Speaker Softmax Margin Loss: {(train_margin_loss):.4f}")
             print("-----------------------------------------")
             print(f"ELBO Loss: {(elbo_loss):.4f}")
             print(f"VAE Loss: {(vae_loss):.4f}")
+            print(f"Speaker Loss: {(speaker_loss):.4f}")
             print("=========================================")
             print(f"Discriminator Loss: {(train_disc_loss):.4f}")
             print("=========================================")
@@ -419,7 +430,7 @@ def main(
         num_val_samples: Optional[int] = None,
         # Logger Config
         logging: bool = True,
-        project_name: str = 'VITS',
+        project_name: str = 'YourTTS',
         username: Optional[str] = None
     ):
     if torch.cuda.is_available() == False:
