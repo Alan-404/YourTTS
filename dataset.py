@@ -27,7 +27,7 @@ class YourTTSDataset(Dataset):
 
     def __getitem__(self, index) -> Union[Tuple[torch.Tensor, torch.Tensor], Tuple[torch.Tensor, torch.Tensor, torch.Tensor]]:
         index_df = self.prompts.iloc[index]
-        
+        path = index_df['path']
         speaker = index_df['channel']
         phonemes = index_df['phoneme'].split(" ")
 
@@ -39,7 +39,6 @@ class YourTTSDataset(Dataset):
         if self.training:
             return tokens, ref_audio
 
-        path = index_df['path']
         signal = self.handler.load_audio(path)
 
         return tokens, ref_audio, signal
