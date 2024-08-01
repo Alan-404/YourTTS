@@ -41,7 +41,7 @@ class YourTTSDataset(Dataset):
 
         signal = self.handler.load_audio(path)
 
-        return tokens, ref_audio, signal
+        return tokens, ref_audio, signal, speaker
     
 class YourTTSCollate:
     def __init__(self, processor: YourTTSProcessor, handler: YourTTSTargetProcessor, training: bool = False) -> None:
@@ -52,12 +52,12 @@ class YourTTSCollate:
 
     def __call__(self, batch: Tuple[torch.Tensor, torch.Tensor, torch.Tensor]) -> Union[Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor], Tuple[torch.Tensor, torch.Tensor, torch.Tensor]]:
         if self.training:
-            tokens, ref_audios, signals = zip(*batch)
+            tokens, ref_audios, signals, speakers = zip(*batch)
 
             tokens, ref_audios, token_lengths, _ = self.processor(tokens, ref_audios)
-            signals, mels, mel_lengths = self.handler(signals)
+            signals, mels, mel_lengths, speakers = self.handler(signals, speakers)
 
-            return tokens, ref_audios, mels, token_lengths, mel_lengths, signals
+            return tokens, ref_audios, mels, token_lengths, mel_lengths, signals, speakers
         else:
             tokens, ref_audios = zip(*batch)
             tokens, ref_audios, token_lengths, _ = self.processor(tokens, ref_audios)

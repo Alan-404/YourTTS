@@ -3,13 +3,15 @@ import torch.nn.functional as F
 from torchaudio.transforms import Resample
 from scipy.io import wavfile
 import librosa
-
+import json
 from typing import List
 
 MAX_AUDIO_VALUE = 32768
 
 class YourTTSTargetProcessor:
-    def __init__(self, sampling_rate: int = 22050, n_mels: int = 80, n_fft: int = 1024, win_length: int = 1024, hop_length: int = 256, fmin: float = 0, fmax: float = 8000, device: str = 'cpu') -> None:
+    def __init__(self,
+                 speaker_path: str, 
+                 sampling_rate: int = 22050, n_mels: int = 80, n_fft: int = 1024, win_length: int = 1024, hop_length: int = 256, fmin: float = 0, fmax: float = 8000, device: str = 'cpu') -> None:
         self.sampling_rate = sampling_rate
         self.n_fft = n_fft
         self.hop_length = hop_length
@@ -31,6 +33,9 @@ class YourTTSTargetProcessor:
         self.hann_window = torch.hann_window(window_length=win_length).to(device)
 
         self.num_pad = (self.n_fft - self.hop_length) // 2
+
+        with open(speaker_path, 'r') as file:
+            self.speaker_dict = json.load(file)
 
         self.device = device
 
@@ -60,7 +65,7 @@ class YourTTSTargetProcessor:
     def resample_audio(self, signal: torch.Tensor) -> torch.Tensor:
         return self.resampler(signal)
     
-    def __call__(self, signals: List[torch.Tensor]):
+    def __call__(self, signals: List[torch.Tensor], speakers: List[str]):
         lengths = []
         max_length = 0
 
@@ -71,15 +76,18 @@ class YourTTSTargetProcessor:
             lengths.append(length)
 
         padded_signals = []
+        speaker_ids = []
         for index, signal in enumerate(signals):
             padded_signals.append(
                 F.pad(signal, (0, max_length - lengths[index]), value=0.0)
             )
+            speaker_ids.append(self.speaker_dict[speakers[index]])
 
         padded_signals = torch.stack(padded_signals)
         lengths = torch.tensor(lengths)
 
         mels = self.mel_spectrogram(padded_signals)
         lengths = (lengths // self.hop_length)
+        speaker_ids = torch.tensor(speaker_ids)
 
-        return padded_signals, mels, lengths
+        return padded_signals, mels, lengths, speaker_ids
