@@ -223,16 +223,16 @@ def train(rank: int,
         # Training Step
         generator.train()
         discriminator.train()
-        for _, (x, cond, y, x_lengths, y_lengths) in enumerate(tqdm(dataloader, leave=False)):
+        for _, (x, cond, mels, x_lengths, mel_lengths, y) in enumerate(tqdm(dataloader, leave=False)):
             x = x.to(rank)
             cond = cond.to(rank)
             y = y.to(rank)
             x_lengths = x_lengths.to(rank)
-            y_lengths = y_lengths.to(rank)
+            mel_lengths = mel_lengths.to(rank)
             
             with autocast(enabled=fp16):
                 # Forward Generator
-                y_hat, mels, l_length, sliced_indexes, _, mel_mask, _, z_p, m_p, logs_p, _, logs_q, g_out = generator(x, cond, y, x_lengths, y_lengths)
+                y_hat, l_length, sliced_indexes, _, mel_mask, _, z_p, m_p, logs_p, _, logs_q, g_out = generator(x, cond, mels, x_lengths, mel_lengths)
                 
                 mel_hat = handler.mel_spectrogram(y_hat.squeeze(1))
                 mel_truth = slice_segments(mels, sliced_indexes, mel_frame)
