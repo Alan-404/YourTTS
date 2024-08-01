@@ -25,7 +25,7 @@ class EarlyStoppingManager:
 class CheckpointManager:
     def __init__(self, saved_folder: Optional[str] = None, n_savings: int = 3) -> None:
         self.saved_folder = saved_folder
-        if os.path.exists(self.saved_folder):
+        if os.path.exists(self.saved_folder) == False:
             os.makedirs(self.saved_folder)
 
         self.n_savings = n_savings
