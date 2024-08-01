@@ -266,7 +266,7 @@ def train(rank: int,
                     fm_loss = criterion.feature_loss(fmap_dp_r, fmap_dp_g)
 
                     # Speaker
-                    output_embedding = generator.speaker_encoder(handler.resample_audio(y_hat.squeeze(1)))
+                    output_embedding = generator.speaker_encoder(handler.resample_audio(y_hat.squeeze(1).float()))
                     speaker_consistency_loss = criterion.speaker_consistency_loss(g_out, output_embedding)
                     speaker_margin_loss = criterion.softmax_margin_loss(g_out, speakers)
 
