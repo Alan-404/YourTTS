@@ -428,6 +428,7 @@ def main(
         lr: float = 2e-4,
         set_lr: bool = False,
         fp16: bool = False,
+        n_save_steps: int = 40000,
         # Validation Config
         val_path: Optional[str] = None,
         val_batch_size: int = 1,
@@ -450,7 +451,7 @@ def main(
             sampling_rate, num_mels, n_fft, hop_length, win_length, fmin, fmax,
             n_blocks, d_model, n_heads, kernel_size, hidden_channels, upsample_initial_channel, upsample_rates, upsample_kernel_sizes,
             resblock_kernel_sizes, resblock_dilation_sizes, gin_channels, dropout_p, segment_size,
-            batch_size, num_epochs, lr, set_lr, bool(fp16),
+            batch_size, num_epochs, lr, set_lr, bool(fp16), n_save_steps,
             val_path, val_batch_size, num_val_samples,
             logging, project_name, username
         )
@@ -464,7 +465,7 @@ def main(
                 sampling_rate, num_mels, n_fft, hop_length, win_length, fmin, fmax,
                 n_blocks, d_model, n_heads, kernel_size, hidden_channels, upsample_initial_channel, upsample_rates, upsample_kernel_sizes,
                 resblock_kernel_sizes, resblock_dilation_sizes, gin_channels, dropout_p, segment_size,
-                batch_size, num_epochs, lr, set_lr, bool(fp16),
+                batch_size, num_epochs, lr, set_lr, bool(fp16), n_save_steps,
                 val_path, val_batch_size, num_val_samples,
                 logging, project_name, username
             ),
