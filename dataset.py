@@ -36,7 +36,7 @@ class YourTTSDataset(Dataset):
 
         tokens = self.processor.phonemes2tokens(phonemes)
 
-        if self.training:
+        if self.training == False:
             return tokens, ref_audio
 
         signal = self.handler.load_audio(path)
