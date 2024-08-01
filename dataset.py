@@ -29,7 +29,7 @@ class YourTTSDataset(Dataset):
         index_df = self.prompts.iloc[index]
         
         speaker = index_df['channel']
-        phonemes = index_df['phonemes'].split(" ")
+        phonemes = index_df['phoneme'].split(" ")
 
         ref_path = self.prompts[(self.prompts['channel'] == speaker) & (self.prompts['path'] != path)].sample(1)['path'].to_list()[0]
         ref_audio = self.processor.load_audio(ref_path)
