@@ -230,6 +230,7 @@ def train(rank: int,
             y = y.to(rank)
             x_lengths = x_lengths.to(rank)
             mel_lengths = mel_lengths.to(rank)
+            speakers = speakers.to(rank)
             
             with autocast(enabled=fp16):
                 # Forward Generator
