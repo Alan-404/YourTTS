@@ -97,6 +97,7 @@ def train(rank: int,
           lr: float = 2e-4,
           set_lr: bool = False,
           fp16: bool = False,
+          n_save_steps: int = 40000,
           # Validation Config
           val_path: Optional[str] = None,
           val_batch_size: int = 1,
@@ -299,6 +300,9 @@ def train(rank: int,
 
             if rank == 0:
                 n_steps += 1
+                if n_steps % n_save_steps == n_save_steps - 1:
+                    checkpoint_manager.save_checkpoint(generator, gen_optim, gen_scheduler, n_steps, n_epochs, 'your_tts')
+                    checkpoint_manager.save_checkpoint(discriminator, disc_optim, disc_scheduler, n_steps, n_epochs, 'disc')
 
         # Schedulers step
         gen_scheduler.step()
