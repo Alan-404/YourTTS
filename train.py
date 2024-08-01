@@ -114,7 +114,7 @@ def train(rank: int,
     logger = LoggerManager(project=project_name, name=username)
 
     processor = YourTTSProcessor(
-        path=tokenizer_path,
+        tokenizer_path=tokenizer_path,
         pad_token=pad_token,
         delim_token=delim_token,
         unk_token=unk_token,
