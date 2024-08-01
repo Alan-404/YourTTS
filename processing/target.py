@@ -24,7 +24,7 @@ class YourTTSTargetProcessor:
                 fmin=fmin,
                 fmax=fmax
             )
-        )
+        ).to(device)
 
         self.resampler = Resample(orig_freq=sampling_rate, new_freq=16000)
 
