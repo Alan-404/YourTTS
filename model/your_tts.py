@@ -9,7 +9,6 @@ from model.modules.vocoder import Generator
 from model.utils.masking import generate_mask
 from model.utils.common import rand_slice_segments
 from model.modules.mas.search import find_path
-import numpy as np
 import math
 
 from typing import Optional, List
@@ -35,7 +34,7 @@ class YourTTS(nn.Module):
         self.d_model = d_model
         self.hidden_channels = hidden_channels
         if segment_size is not None:
-            self.segment_size = segment_size // np.prod(upsample_rates)
+            self.segment_size = segment_size // math.prod(upsample_rates)
         else:
             self.segment_size = None
 

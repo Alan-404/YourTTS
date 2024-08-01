@@ -3,7 +3,7 @@ from torch.utils.data import Dataset
 import pandas as pd
 from processing.processor import YourTTSProcessor
 from processing.target import YourTTSTargetProcessor
-from typing import Any, Optional, Tuple
+from typing import Any, Optional, Tuple, Union
 
 class YourTTSDataset(Dataset):
     def __init__(self, manifest_path: str, processor: YourTTSProcessor, handler: YourTTSTargetProcessor, training: bool = False, num_examples: Optional[int] = None) -> None:
