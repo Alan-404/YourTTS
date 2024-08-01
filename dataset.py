@@ -25,7 +25,7 @@ class YourTTSDataset(Dataset):
     def __len__(self) -> int:
         return len(self.prompts)
 
-    def __getitem__(self, index):
+    def __getitem__(self, index) -> Union[Tuple[torch.Tensor, torch.Tensor], Tuple[torch.Tensor, torch.Tensor, torch.Tensor]]:
         index_df = self.prompts.iloc[index]
         
         speaker = index_df['channel']
@@ -51,7 +51,7 @@ class YourTTSCollate:
 
         self.training = training
 
-    def __call__(self, batch: Tuple[torch.Tensor, torch.Tensor, torch.Tensor]) -> Union[Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor], Tuple[torch.Tensor, torch.Tensor, torch.Tensor]]:
+    def __call__(self, batch: Tuple[torch.Tensor, torch.Tensor, torch.Tensor]) -> Union[Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor], Tuple[torch.Tensor, torch.Tensor, torch.Tensor]]:
         if self.training:
             tokens, ref_audios, signals = zip(*batch)
 

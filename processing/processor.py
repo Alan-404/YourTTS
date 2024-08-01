@@ -2,7 +2,7 @@ import os
 import numpy as np
 import json
 import librosa
-from typing import Union, Optional, List, Tuple
+from typing import Union, Optional, List, Tuple, Dict
 import re
 import torch
 import torch.nn.functional as F
@@ -13,17 +13,17 @@ MAX_AUDIO_VALUE = 32768
 
 class YourTTSProcessor:
     def __init__(self, 
-                 path: str, pad_token: str = "<PAD>", delim_token: str = "|", unk_token: str = "<UNK>", puncs: str = r"([:./,?!@#$%^&=`~;*\(\)\[\]\"\\])",
+                 tokenizer_path: str, pad_token: str = "<PAD>", delim_token: str = "|", unk_token: str = "<UNK>", puncs: str = r"([:./,?!@#$%^&=`~*\(\)\[\]\"\-\\])",
                  sampling_rate: int = 22050,
                  device: Union[str, int] = 'cpu') -> None:
-        # Text Process
-        assert os.path.exists(path)
-        
-        patterns = json.load(open(path, 'r', encoding='utf8'))
+        # Text
+        patterns = json.load(open(tokenizer_path, 'r', encoding='utf8'))
         self.yolo = patterns
         self.replace_dict = patterns['replace']
         self.mapping = patterns['mapping']
+
         self.single_vowels = patterns['single_vowel']
+
         vocab = []
 
         for key in patterns.keys():
@@ -34,11 +34,12 @@ class YourTTSProcessor:
         self.dictionary = self.create_vocab_dictionary(vocab, pad_token, delim_token, unk_token)
 
         self.pattern = self.sort_pattern(vocab + list(patterns['mapping'].keys()))
+        self.puncs = puncs
 
         self.pad_token = pad_token
         self.delim_token = delim_token
         self.unk_token = unk_token
-
+        
         self.pad_id = self.find_token_id(pad_token)
         self.delim_id = self.find_token_id(delim_token)
         self.unk_id = self.find_token_id(unk_token)
@@ -49,31 +50,74 @@ class YourTTSProcessor:
         self.puncs = puncs
         self.device = device
     
-    def create_vocab_dictionary(self, vocab: List[str], pad_token: str, delim_token: str, unk_token: str):
+    def create_vocab_dictionary(self, vocab: List[str], pad_token: str, delim_token: str, unk_token: str) -> Dict[str, int]:
         dictionary = []
-        dictionary.append(pad_token)
 
         for item in vocab:
             if item not in dictionary:
                 dictionary.append(item)
-
         dictionary.append(delim_token)
+        dictionary.append(pad_token)
         dictionary.append(unk_token)
 
         return dictionary
-
-    def sort_pattern(self, patterns: List[str]):
+    
+    def sort_pattern(self, patterns: List[str]) -> List[str]:
         patterns = sorted(patterns, key=len)
         patterns.reverse()
 
+        return patterns
+    
+    def find_token_id(self, token: str) -> int:
+        if token in self.dictionary:
+            return self.dictionary.index(token)
+        return self.dictionary.index(self.unk_token)
+    
+    def token2text(self, tokens: np.ndarray, get_string: bool = False) -> str:
+        words = []
+        for token in tokens:
+            words.append(self.dictionary[token])
+
+        if get_string:
+            return "".join(words).replace(self.delim_token, " ")
+        
+        return words
+    
+    def spec_replace(self, word: str) -> str:
+        for key in self.replace_dict:
+            arr = word.split(key)
+            if len(arr) == 2:
+                if arr[1] in self.single_vowels:
+                    return word
+                else:
+                    return word.replace(key, self.replace_dict[key])
+        return word
+    
+    def sentence2tokens(self, sentence: str) -> List[int]:
+        phonemes = self.sentence2phonemes(sentence)
+        tokens = self.phonemes2tokens(phonemes)
+        return tokens
+
+    def sentences2tokens(self, sentences: List[str]) -> List[torch.Tensor]:
+        tokens = []
+        for sentence in sentences:
+            tokens.append(self.sentence2tokens(sentence))
+        return tokens
+
+    def phonemes2tokens(self, phonemes: List[str]):
+        tokens = []
+        for phoneme in phonemes:
+            tokens.append(self.find_token_id(phoneme))
+        return torch.tensor(tokens)
+    
     def clean_text(self, sentence: str) -> str:
         sentence = str(sentence)
-        sentence = re.sub(self.puncs, "", sentence)
+        sentence = re.sub(self.puncs, r" \1 ", sentence)
         sentence = re.sub(r"\s\s+", " ", sentence)
         sentence = sentence.strip()
         return sentence
     
-    def slide_graphemes(self, text: str, patterns: List[str], n_grams: int = 3, reverse: bool = False):
+    def slide_graphemes(self, text: str, patterns: List[str], n_grams: int = 4, reverse: bool = True) -> List[str]:
         if len(text) == 1:
             if text in patterns:
                 if text in self.mapping:
@@ -120,56 +164,30 @@ class YourTTSProcessor:
             graphemes = [graphemes[i] for i in range(len(graphemes) - 1, -1, -1)]
 
         return graphemes
-    
-    def sentence2phonemes(self, sentence: str) -> List[str]:
+
+    def sentence2phonemes(self, sentence: str):
         sentence = self.clean_text(sentence.upper())
+        sentence = sentence.replace("%", "PHẦN TRĂM").replace("…", "...").replace("°C", "ĐỘ XÊ")
         words = sentence.split(" ")
         graphemes = []
 
         length = len(words)
 
         for index, word in enumerate(words):
+            if word in ['.', ',', '!', '?']:
+                graphemes[-1] = word
+                continue
             graphemes += self.slide_graphemes(self.spec_replace(word), self.pattern, n_grams=4, reverse=False)
             if index != length - 1:
                 graphemes.append(self.delim_token)
 
         return graphemes
     
-    def find_token_id(self, token: str) -> int:
-        if token in self.dictionary:
-            return self.dictionary.index(token)
-        return self.dictionary.index(self.unk_token)
-    
-    def token2text(self, tokens: np.ndarray, get_string: bool = False) -> str:
-        words = []
-        for token in tokens:
-            words.append(self.dictionary[token])
-
-        if get_string:
-            return "".join(words).replace(self.delim_token, " ")
-        
-        return words
-    
-    def spec_replace(self, word: str) -> str:
-        for key in self.replace_dict:
-            arr = word.split(key)
-            if len(arr) == 2:
-                if arr[1] in self.single_vowels:
-                    return word
-                else:
-                    return word.replace(key, self.replace_dict[key])
-        return word
-    
-    def sentence2tokens(self, sentence: str) -> torch.Tensor:
-        phonemes = self.sentence2phonemes(sentence)
-        tokens = self.phonemes2tokens(phonemes)
-        return tokens
-
-    def phonemes2tokens(self, phonemes: List[str]):
-        tokens = []
-        for phoneme in phonemes:
-            tokens.append(self.find_token_id(phoneme))
-        return torch.tensor(tokens)
+    def sentences2phonemes(self, sentences: List[str]):
+        phonemes = []
+        for sentence in sentences:
+            phonemes.append(self.sentence2phonemes(sentence))
+        return phonemes
     
     # Condition Audio Hanlding
     def load_audio(self, path: str) -> torch.Tensor:
