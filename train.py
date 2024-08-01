@@ -402,6 +402,7 @@ def main(
         upsample_kernel_sizes: List[int] = [16, 16, 4, 4],
         resblock_kernel_sizes: List[int] = [3, 7, 11],
         resblock_dilation_sizes: List[List[int]] = [[1, 3, 5], [1, 3, 5], [1, 3, 5]],
+        gin_channels: int = 512,
         dropout_p: float = 0.1,
         segment_size: int = 8192,
         # train config
@@ -431,7 +432,7 @@ def main(
             num_train_samples, tokenizer_path, pad_token, delim_token, unk_token,
             sampling_rate, num_mels, n_fft, hop_length, win_length, fmin, fmax,
             n_blocks, d_model, n_heads, kernel_size, hidden_channels, upsample_initial_channel, upsample_rates, upsample_kernel_sizes,
-            resblock_kernel_sizes, resblock_dilation_sizes, dropout_p, segment_size,
+            resblock_kernel_sizes, resblock_dilation_sizes, gin_channels, dropout_p, segment_size,
             batch_size, num_epochs, lr, set_lr, bool(fp16),
             val_path, val_batch_size, num_val_samples,
             logging, project_name, username
@@ -445,7 +446,7 @@ def main(
                 num_train_samples, tokenizer_path, pad_token, delim_token, unk_token,
                 sampling_rate, num_mels, n_fft, hop_length, win_length, fmin, fmax,
                 n_blocks, d_model, n_heads, kernel_size, hidden_channels, upsample_initial_channel, upsample_rates, upsample_kernel_sizes,
-                resblock_kernel_sizes, resblock_dilation_sizes, dropout_p, segment_size,
+                resblock_kernel_sizes, resblock_dilation_sizes, gin_channels, dropout_p, segment_size,
                 batch_size, num_epochs, lr, set_lr, bool(fp16),
                 val_path, val_batch_size, num_val_samples,
                 logging, project_name, username
