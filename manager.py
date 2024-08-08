@@ -32,16 +32,18 @@ class CheckpointManager:
 
         self.saved_checkpoints = []
 
-    def load_checkpoint(self, checkpoint_path: str, model: Module, optimizer: Optimizer, scheduler: LRScheduler) -> Tuple[int, int]:
+    def load_checkpoint(self, checkpoint_path: str, model: Module, optimizer: Optional[Optimizer] = None, scheduler: Optional[LRScheduler] = None, only_weights: bool = False) -> Tuple[int, int]:
         checkpoint = torch.load(checkpoint_path, map_location='cpu')
         model.load_state_dict(checkpoint['model'])
-        optimizer.load_state_dict(checkpoint['optimizer'])
-        scheduler.load_state_dict(checkpoint['scheduler'])
 
-        n_steps = checkpoint['n_steps']
-        n_epochs = checkpoint['n_epochs']
+        if only_weights == False:
+            optimizer.load_state_dict(checkpoint['optimizer'])
+            scheduler.load_state_dict(checkpoint['scheduler'])
 
-        return n_steps, n_epochs
+            n_steps = checkpoint['n_steps']
+            n_epochs = checkpoint['n_epochs']
+
+            return n_steps, n_epochs
     
     def save_checkpoint(self, model: Module, optimizer: Optimizer, scheduler: LRScheduler, n_steps: int, n_epochs: int, filename: str = 'model') -> None:
         data = {
