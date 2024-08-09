@@ -1,54 +1,82 @@
 import torch
 from torch.utils.data import Dataset
 import pandas as pd
+import pyarrow as pa
+import pyarrow.parquet as pq
+import pyarrow.compute as pc
 from processing.processor import YourTTSProcessor
 from processing.target import YourTTSTargetProcessor
-from typing import Any, Optional, Tuple, Union
+import random
+from typing import Optional, Tuple, Union, Dict
 
 class YourTTSDataset(Dataset):
-    def __init__(self, manifest_path: str, processor: YourTTSProcessor, handler: YourTTSTargetProcessor, training: bool = False, num_examples: Optional[int] = None) -> None:
+    def __init__(self, dataset: Union[pa.Table, str], processor: YourTTSProcessor, handler: Optional[YourTTSTargetProcessor] = None, training: bool = False, num_examples: Optional[int] = None) -> None:
         super().__init__()
-        self.prompts = pd.read_csv(manifest_path)
-        if num_examples is not None:
-            self.prompts = self.prompts[:num_examples]
+        if isinstance(dataset, str):
+            self.dataset = pq.read_table(dataset)
+        else:
+            self.dataset = dataset
 
-        # Remove speakers which have only one file audio
-        value_counts = self.prompts['channel'].value_counts()
-        mask = self.prompts['channel'].isin(value_counts[value_counts > 1].index)
-        self.prompts = self.prompts[mask].reset_index(drop=True)
+        if num_examples is not None:
+            self.dataset = self.dataset.slice(0, num_examples)
 
         self.processor = processor
         self.handler = handler
 
         self.training = training
+
+        if self.training:
+            assert self.handler is not None
 
     def __len__(self) -> int:
-        return len(self.prompts)
+        return len(self.dataset)
+    
+    def query_by_speaker(self, speaker: str) -> pa.Table:
+        condition = pc.equal(self.dataset, speaker)
+        return self.dataset.filter(condition)
+    
+    def get_random_audio_sample(self, speaker: int, path: str) -> str:
+        speaker_table = self.query_by_speaker(speaker)
+        path_condition = pc.equal(speaker_table['path'], path)
+        speaker_table = speaker_table.filter(pc.invert(path_condition))
 
-    def __getitem__(self, index) -> Union[Tuple[torch.Tensor, torch.Tensor], Tuple[torch.Tensor, torch.Tensor, torch.Tensor]]:
-        index_df = self.prompts.iloc[index]
-        path = index_df['path']
-        speaker = index_df['channel']
-        phonemes = index_df['phoneme'].split(" ")
+        random_index = random.randint(0, speaker_table.num_rows)
 
-        ref_path = self.prompts[(self.prompts['channel'] == speaker) & (self.prompts['path'] != path)].sample(1)['path'].to_list()[0]
-        ref_audio = self.processor.load_audio(ref_path)
+        return self.get_row_by_index(random_index)['path']
+    
+    def get_row_by_index(self, index: int) -> Dict:
+        return {col: self.dataset[col][index].as_py() for col in self.dataset.column_names}
 
-        tokens = self.processor.phonemes2tokens(phonemes)
+    def __getitem__(self, index: int) -> Union[Tuple[torch.Tensor, torch.Tensor], Tuple[torch.Tensor, torch.Tensor, torch.Tensor]]:
+        row = self.get_row_by_index(index)
 
-        if self.training == False:
-            return tokens, ref_audio
+        speaker = row['speaker']
+        text = row['text']
 
-        signal = self.handler.load_audio(path)
+        if self.training:
+            path = row['path']
 
-        return tokens, ref_audio, signal, speaker
+            ref_path = self.get_random_audio_sample(speaker, path)
+
+            audio = self.handler.load_audio(path)
+            ref_audio = self.processor.load_audio(ref_path)
+
+            return ref_audio, text, audio
+        else:
+            path = row['ref_path']
+            ref_audio = self.processor.load_audio(path)
+
+            return ref_audio, text
     
 class YourTTSCollate:
-    def __init__(self, processor: YourTTSProcessor, handler: YourTTSTargetProcessor, training: bool = False) -> None:
+    def __init__(self, processor: YourTTSProcessor, handler: Optional[YourTTSTargetProcessor] = None, training: bool = False) -> None:
         self.processor = processor
         self.handler = handler
 
         self.training = training
+
+        if self.training:
+            assert self.handler is not None
 
     def __call__(self, batch: Tuple[torch.Tensor, torch.Tensor, torch.Tensor]) -> Union[Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor], Tuple[torch.Tensor, torch.Tensor, torch.Tensor]]:
         if self.training:

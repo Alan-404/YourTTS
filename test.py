@@ -1,32 +1,38 @@
+import os
+
 import torch
+import torch.distributed as distributed
 
 from model.your_tts import YourTTS
 from manager import CheckpointManager
 from processing.processor import YourTTSProcessor
+
+import pandas as pd
+
 from typing import List, Optional
 
+def setup(rank: int, world_size: int) -> None:
+    os.environ['MASTER_ADDR'] = 'localhost'
+    os.environ['MASTER_PORT'] =  '12355'
+    distributed.init_process_group(backend='nccl', world_size=world_size, rank=rank)
+    print(f"Initialized Thread at {rank + 1}/{world_size}")
+
+def cleanup() -> None:
+    distributed.destroy_process_group()
+
 def test(
-        test_path: str,
-        checkpoint: str,
         rank: int,
         world_size: int,
+        test_path: str,
+        checkpoint: str,
         # dataset config
         # checkpoint config
-        save_checkpoint_after_epochs: int = 3,
-        n_saved_checkpoints: int = 3,
-        num_train_samples: Optional[int] = None,
         # tokenizer config
         tokenizer_path: str = "./tokenizer/vietnamese.json",
         pad_token: str = "<PAD>", 
         delim_token: str = "|", 
         unk_token: str = "<UNK>", 
-        sampling_rate: int = 22050, 
         num_mels: int = 80, 
-        n_fft: int = 1024, 
-        hop_length: int = 256, 
-        win_length: int = 1024, 
-        fmin: float = 0.0, 
-        fmax: float = 8000.0,
         # model config
         n_blocks: int = 6,
         d_model: int = 512,
@@ -41,6 +47,9 @@ def test(
         gin_channels: int = 512,
         dropout_p: float = 0.0
     ):
+
+    if world_size > 1:
+        setup(rank, world_size)
     
     checkpoint_manager = CheckpointManager()
 
@@ -71,3 +80,7 @@ def test(
 
     checkpoint_manager.load_checkpoint(checkpoint, model, only_weights=True)
     
+    df = pd.read_csv(test_path)
+
+    if world_size > 1:
+        cleanup()

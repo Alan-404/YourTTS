@@ -66,7 +66,7 @@ def train(rank: int,
           n_saved_checkpoints: int = 3,
           num_train_samples: Optional[int] = None,
           # tokenizer config
-          tokenizer_path: str = "./tokenizer/vietnamese.json",
+          tokenizer_path: str = "./tokenizer/vi.json",
           pad_token: str = "<PAD>", 
           delim_token: str = "|", 
           unk_token: str = "<UNK>", 
