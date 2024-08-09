@@ -9,8 +9,10 @@ from pytorch_metric_learning.losses import ArcFaceLoss
 class YourTTSCriterion:
     def __init__(self, n_speakers: int, dim: int) -> None:
         self.arc_face = ArcFaceLoss(n_speakers, dim)
+        self.l_1 = nn.L1Loss()
+
     def reconstruction_loss(self, mel: torch.Tensor, mel_hat: torch.Tensor):
-        loss = F.l1_loss(mel_hat, mel) * 45
+        loss = self.l_1(mel_hat, mel) * 45
         return loss
         
     def duration_loss(self, l_length: torch.Tensor):

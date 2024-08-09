@@ -1,5 +1,6 @@
 import os
 import torch
+import torch.nn as nn
 from torch.utils.data import DataLoader
 import torch.optim as optim
 import torch.optim.lr_scheduler as lr_scheduler
@@ -50,10 +51,6 @@ def clip_grad_value_(parameters: torch.Tensor, clip_value: Optional[float] = Non
     total_norm = total_norm ** (1. / norm_type)
 
     return total_norm
-
-def step(rank: int,
-         world_size: int,):
-    pass
 
 def train(rank: int,
           world_size: int,
@@ -364,19 +361,20 @@ def train(rank: int,
             print(f"Discriminator Gradient Norm: {(d_grad_norm):.4f}")
             print("\n")
 
-            logger.log_data({
-                'recon_loss': train_recon_loss,
-                'kl_loss': train_kl_loss,
-                'duration_loss': train_duration_loss,
-                'generation_loss': train_gen_loss,
-                'feature_map_loss': train_fm_loss,
-                'elbo_loss': elbo_loss,
-                'vae_loss': vae_loss,
-                'discriminator_loss': train_disc_loss,
-                'learning_rate': current_lr,
-                'generator_gradient_norm': g_grad_norm,
-                'discriminator_gradient_norm': d_grad_norm
-            }, n_steps)
+            if logging:
+                logger.log_data({
+                    'recon_loss': train_recon_loss,
+                    'kl_loss': train_kl_loss,
+                    'duration_loss': train_duration_loss,
+                    'generation_loss': train_gen_loss,
+                    'feature_map_loss': train_fm_loss,
+                    'elbo_loss': elbo_loss,
+                    'vae_loss': vae_loss,
+                    'discriminator_loss': train_disc_loss,
+                    'learning_rate': current_lr,
+                    'generator_gradient_norm': g_grad_norm,
+                    'discriminator_gradient_norm': d_grad_norm
+                }, n_steps)
 
             n_epochs += 1
 
@@ -384,7 +382,7 @@ def train(rank: int,
                 checkpoint_manager.save_checkpoint(generator, gen_optim, gen_scheduler, n_steps, n_epochs, 'your_tts')
                 checkpoint_manager.save_checkpoint(discriminator, disc_optim, disc_scheduler, n_steps, n_epochs, 'disc')
                 print(f"Checkpoint is saved at {saved_checkpoints}/{n_steps}\n")
-    
+                
     if world_size > 1:
         cleanup()
             
